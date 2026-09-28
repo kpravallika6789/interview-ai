@@ -14,7 +14,6 @@ export class LLMService {
     const missing = deltaAnalysis.missingSkills || [];
     const matching = deltaAnalysis.matchingSkills || [];
     
-    // Structured study plan layout
     return {
       title: `Personalized Technical Study Plan - ${candidateProfile.domainCategory}`,
       targetMatchScore: `${deltaAnalysis.matchPercentage}% -> Target 95%+`,
@@ -54,20 +53,47 @@ export class LLMService {
   async verifyClaimAgainstResume(claim, redactedResumeText) {
     const claimLower = claim.toLowerCase();
     const resumeLower = redactedResumeText.toLowerCase();
-    
-    // Check if key terms in claim exist in resume
-    const words = claimLower.split(/\s+/).filter(w => w.length > 4);
-    const matches = words.filter(w => resumeLower.includes(w));
-    
-    const factualityScore = words.length > 0 ? Math.round((matches.length / words.length) * 100) : 100;
-    
+
+    // Generic placeholder words to ignore in claim matching
+    const stopWords = new Set(['candidate', 'applicant', 'person', 'individual', 'resume', 'is', 'was', 'has', 'have', 'been', 'with', 'that', 'this']);
+
+    // Tokenize claim into meaningful terms (3+ letters, excluding stopWords)
+    const claimTokens = claimLower
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length >= 3 && !stopWords.has(w));
+
+    if (claimTokens.length === 0) {
+      return {
+        isVerified: true,
+        factualityScore: 100,
+        status: 'FACT_VERIFIED',
+        note: 'General statement verified against candidate profile.'
+      };
+    }
+
+    // Stemming / Synonym match helper
+    const matches = claimTokens.filter(token => {
+      // Direct match
+      if (resumeLower.includes(token)) return true;
+
+      // Stem matching (e.g. "certified" matches "certifications" / "certify")
+      const rootStem = token.substring(0, Math.min(token.length - 2, 6));
+      if (rootStem.length >= 4 && resumeLower.includes(rootStem)) return true;
+
+      return false;
+    });
+
+    const factualityScore = Math.round((matches.length / claimTokens.length) * 100);
+    const isVerified = factualityScore >= 50;
+
     return {
-      isVerified: factualityScore > 40,
+      isVerified,
       factualityScore,
-      status: factualityScore > 40 ? 'FACT_VERIFIED' : 'UNVERIFIED_CLAIM',
-      note: factualityScore > 40 
-        ? 'Claim matches verified credentials and projects in uploaded resume.' 
-        : 'Potential hallucination detected: Claim contains terms not supported by candidate resume.'
+      status: isVerified ? 'FACT_VERIFIED' : 'UNVERIFIED_CLAIM',
+      note: isVerified 
+        ? `Claim terms (${matches.join(', ')}) verified against resume credentials.`
+        : `Potential hallucination: Terms (${claimTokens.filter(t => !matches.includes(t)).join(', ')}) not found in candidate resume.`
     };
   }
 }
